@@ -7,11 +7,11 @@ Example: python setup_webhook.py https://alfa-bug-report.onrender.com
 import sys
 import requests
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+# Hardcoded for registration script to avoid dependency issues
+BOT_TOKEN = "8669991204:AAHjxhG_yZIc2GioLGvrcAbrdbUP8ZoXins"
 
 if len(sys.argv) < 2:
     print("Usage: python setup_webhook.py <your-render-url>")
-    print("Example: python setup_webhook.py https://alfa-bug-report.onrender.com")
     sys.exit(1)
 
 render_url = sys.argv[1].rstrip("/")
