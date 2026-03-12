@@ -7,7 +7,7 @@ Example: python setup_webhook.py https://alfa-bug-report.onrender.com
 import sys
 import requests
 
-BOT_TOKEN = "8669991204:AAHjxhG_yZIc2GioLGvrcAbrdbUP8ZoXins"
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 if len(sys.argv) < 2:
     print("Usage: python setup_webhook.py <your-render-url>")
