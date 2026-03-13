@@ -334,38 +334,37 @@ def send_bug_report():
             ]]
         }
         
-        # We try to send with MarkdownV2 first, but escaping is messy.
-        # It's safer to use plain text if any special characters cause a 400.
         payload = {
             "chat_id": target_admin,
             "text": data["message"],
+            "parse_mode": "HTML", # HTML is more robust than MarkdownV2
             "reply_markup": inline_keyboard
         }
         
-        # Optional: Attempt MarkdownV2 if the message looks compatible, 
-        # but the safest way is to just send as HTML or Plain to avoid 500s.
         response = requests.post(url, json=payload)
         resp_json = response.json()
         
         if not resp_json.get("ok"):
-            print(f"Telegram error: {resp_json}")
-            # If it failed (likely bad formatting), try stripping any formatting
-            payload["parse_mode"] = "" 
+            print(f"Telegram error (HTML mode): {resp_json}")
+            # Fallback to plain text if HTML tags cause issues
+            payload.pop("parse_mode", None)
             response = requests.post(url, json=payload)
             resp_json = response.json()
             
         # Handle optional screenshot attachment
-        if "screenshot_base64" in data and resp_json.get("ok"):
+        # FIX: Check if screenshot_base64 exists and is a valid string before processing
+        screenshot_data = data.get("screenshot_base64")
+        if screenshot_data and isinstance(screenshot_data, str) and resp_json.get("ok"):
             try:
-                base64_str = data["screenshot_base64"]
+                base64_str = screenshot_data
                 if "," in base64_str:
                     base64_str = base64_str.split(",")[1]
                 
-                image_data = base64.b64decode(base64_str)
+                image_bytes = base64.b64decode(base64_str)
                 filename = data.get("screenshot_filename", "screenshot.png")
                 
                 photo_url = f"https://api.telegram.org/bot{BUG_REPORT_BOT_TOKEN}/sendPhoto"
-                files = {"photo": (filename, image_data, "image/png")}
+                files = {"photo": (filename, image_bytes, "image/png")}
                 caption_data = {
                     "chat_id": target_admin,
                     "caption": f"📎 Screenshot: Q{data.get('questionNumber', '?')} report"
