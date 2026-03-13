@@ -3,6 +3,7 @@
 # Handles Approve/Dismiss button callbacks from bug report Telegram messages
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from dotenv import load_dotenv
 import requests
 import os
@@ -15,6 +16,7 @@ from firebase_admin import credentials, firestore
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app) # Enable CORS for all routes
 
 # --- Firebase Initialization ---
 # Render environment variables have a size limit, so we pass the service account JSON as a base64 string
