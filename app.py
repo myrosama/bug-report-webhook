@@ -303,10 +303,20 @@ def upload_image():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def escape_markdown(text):
+    """Escapes special characters for Telegram MarkdownV2"""
+    if not text: return ""
+    # Characters that must be escaped in MarkdownV2
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    return "".join(['\\' + char if char in escape_chars else char for char in str(text)])
+
 @app.route("/send-bug-report", methods=["POST"])
 def send_bug_report():
-    if not BUG_REPORT_BOT_TOKEN or not ADMIN_CHAT_ID:
-        return jsonify({"error": "Missing bug report bot config"}), 500
+    # Use fallback names for admin chat ID
+    target_admin = os.environ.get("BUG_REPORT_ADMIN_CHAT_ID") or os.environ.get("ADMIN_CHAT_ID")
+    
+    if not BUG_REPORT_BOT_TOKEN or not target_admin:
+        return jsonify({"error": "Missing bug report bot config (Token or Admin Chat ID)"}), 500
         
     data = request.get_json(silent=True)
     if not data or "message" not in data:
@@ -324,22 +334,28 @@ def send_bug_report():
             ]]
         }
         
+        # We try to send with MarkdownV2 first, but escaping is messy.
+        # It's safer to use plain text if any special characters cause a 400.
         payload = {
-            "chat_id": ADMIN_CHAT_ID,
+            "chat_id": target_admin,
             "text": data["message"],
-            "parse_mode": "MarkdownV2",
             "reply_markup": inline_keyboard
         }
         
+        # Optional: Attempt MarkdownV2 if the message looks compatible, 
+        # but the safest way is to just send as HTML or Plain to avoid 500s.
         response = requests.post(url, json=payload)
+        resp_json = response.json()
         
-        # Fallback for MarkdownV2 parse errors
-        if not response.json().get("ok"):
-            payload["parse_mode"] = ""  # Strip parsing
+        if not resp_json.get("ok"):
+            print(f"Telegram error: {resp_json}")
+            # If it failed (likely bad formatting), try stripping any formatting
+            payload["parse_mode"] = "" 
             response = requests.post(url, json=payload)
+            resp_json = response.json()
             
         # Handle optional screenshot attachment
-        if "screenshot_base64" in data and response.json().get("ok"):
+        if "screenshot_base64" in data and resp_json.get("ok"):
             try:
                 base64_str = data["screenshot_base64"]
                 if "," in base64_str:
@@ -351,19 +367,21 @@ def send_bug_report():
                 photo_url = f"https://api.telegram.org/bot{BUG_REPORT_BOT_TOKEN}/sendPhoto"
                 files = {"photo": (filename, image_data, "image/png")}
                 caption_data = {
-                    "chat_id": ADMIN_CHAT_ID,
-                    "caption": f"📎 Screenshot for Q{data.get('questionNumber', '?')} report"
+                    "chat_id": target_admin,
+                    "caption": f"📎 Screenshot: Q{data.get('questionNumber', '?')} report"
                 }
                 requests.post(photo_url, data=caption_data, files=files)
             except Exception as e:
                 print(f"Failed to send screenshot: {e}")
                 
-        return jsonify({"success": True})
+        if resp_json.get("ok"):
+            return jsonify({"success": True})
+        else:
+            return jsonify({"error": resp_json.get("description", "Telegram API error")}), 500
         
     except Exception as e:
+        print(f"Webhook Exception: {str(e)}")
         return jsonify({"error": str(e)}), 500
-
-    return jsonify({"ok": True})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
