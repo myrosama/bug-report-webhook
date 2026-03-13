@@ -141,6 +141,83 @@ def webhook():
                 "text": updated_text
             })
 
+    # Handle text replies to bot messages
+    message = data.get("message")
+    if message and "reply_to_message" in message and "text" in message:
+        replied_msg = message["reply_to_message"]
+        replied_text = replied_msg.get("text", "")
+        admin_text = message["text"].strip()
+        chat_id = message.get("chat", {}).get("id")
+        
+        # Check if the replied message contains a report ID
+        import re
+        match = re.search(r"ID: (rpt_\d+|manual_rpt_\d+)", replied_text)
+        
+        if match and db:
+            report_id = match.group(1)
+            
+            # Determine field to update (default: passage)
+            target_field = "passage"
+            new_val = admin_text
+            
+            # Allow admin to specify field, e.g. "prompt: new text"
+            if ":" in admin_text:
+                prefix = admin_text.split(":", 1)[0].strip().lower()
+                suffix = admin_text.split(":", 1)[1].strip()
+                if prefix in ["prompt", "passage", "correctanswer", "a", "b", "c", "d"]:
+                    if prefix in ["a", "b", "c", "d"]:
+                        # This implies we are updating the nested 'options' object.
+                        # For simplicity, we just set the target_field temporarily to handle it below
+                        target_field = f"options.{prefix.upper()}"
+                        new_val = suffix
+                    elif prefix == "correctanswer":
+                        target_field = "correctAnswer"
+                        new_val = suffix
+                    else:
+                        target_field = prefix
+                        new_val = suffix
+            
+            try:
+                report_ref = db.collection("bug_reports").document(report_id)
+                report_doc = report_ref.get()
+                
+                if report_doc.exists:
+                    r_data = report_doc.to_dict()
+                    test_id = r_data.get("testId")
+                    mod = r_data.get("module")
+                    q_num = r_data.get("questionNumber")
+                    q_doc_id = f"m{mod}_q{q_num}"
+                    
+                    q_ref = db.collection("tests").document(test_id).collection("questions").document(q_doc_id)
+                    q_ref.update({
+                        target_field: new_val, 
+                        "lastModified": firestore.SERVER_TIMESTAMP
+                    })
+                    report_ref.update({"status": "resolved_manual_reply"})
+                    
+                    # Notify admin of success
+                    requests.post(f"https://api.telegram.org/bot{BUG_REPORT_BOT_TOKEN}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": f"✅ Success! Updated `{target_field}` for Test {test_id}, M{mod} Q{q_num}.",
+                        "reply_to_message_id": message["message_id"],
+                        "parse_mode": "Markdown"
+                    })
+                else:
+                    requests.post(f"https://api.telegram.org/bot{BUG_REPORT_BOT_TOKEN}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": f"❌ Error: Report '{report_id}' not found in database.",
+                        "reply_to_message_id": message["message_id"]
+                    })
+            except Exception as e:
+                print(f"Reply update failed: {e}")
+                requests.post(f"https://api.telegram.org/bot{BUG_REPORT_BOT_TOKEN}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": f"❌ Database update failed: {str(e)}",
+                    "reply_to_message_id": message["message_id"]
+                })
+
+    return jsonify({"ok": True})
+
 # Simple in-memory cache for resolved image URLs
 # Key: file_id, Value: (download_url, expiration_timestamp)
 image_cache = {}
