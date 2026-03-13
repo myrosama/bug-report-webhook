@@ -130,9 +130,10 @@ def webhook():
 
             if db:
                 try:
-                    db.collection("bug_reports").document(report_id).update({"status": "dismissed"})
+                    # Use set with merge=True to avoid 404 if doc was never created on frontend
+                    db.collection("bug_reports").document(report_id).set({"status": "dismissed"}, merge=True)
                 except Exception as e:
-                    print(f"Failed to update report status: {e}")
+                    print(f"Failed to update report status for {report_id}: {e}")
 
             updated_text = original_text + "\n\n━━━━━━━━━━━━━━━\n❌ DISMISSED — No action taken."
             requests.post(f"https://api.telegram.org/bot{BUG_REPORT_BOT_TOKEN}/editMessageText", json={
@@ -149,9 +150,9 @@ def webhook():
         admin_text = message["text"].strip()
         chat_id = message.get("chat", {}).get("id")
         
-        # Check if the replied message contains a report ID
+        # Check if the replied message contains a report ID (handles both Firestore and manual prefix)
         import re
-        match = re.search(r"ID: (rpt_\d+|manual_rpt_\d+)", replied_text)
+        match = re.search(r"ID: (rpt_[a-zA-Z0-9_-]+|manual_rpt_\d+|[a-zA-Z0-9]{20,})", replied_text)
         
         if match and db:
             report_id = match.group(1)
